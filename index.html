@@ -547,16 +547,14 @@ function LivePhase({room,myName,isHost,onRoomUpdate}) {
       if(!w) return;
 
       if(w>0){
-        // long was RIGHT -> hand out wager * odds
-        const g=Math.round(w*odds);
-        giveTotals[p.name]=(giveTotals[p.name]||0)+g;
-        outcomes[p.name]={give:g,drink:0};
-      } else {
-        // short was WRONG -> drink |w|
-        const d=Math.abs(w);
-        drinkTotals[p.name]=(drinkTotals[p.name]||0)+d;
-        outcomes[p.name]={give:0,drink:d};
-      }
+  // Long was RIGHT, but we do NOT track handouts for longs
+  outcomes[p.name] = { give: 0, drink: 0 };
+} else {
+  // Short was WRONG -> drink |w|
+  const d = Math.abs(w);
+  drinkTotals[p.name] = (drinkTotals[p.name] || 0) + d;
+  outcomes[p.name] = { give: 0, drink: d };
+}
     });
     return {drinkTotals,giveTotals,outcomes};
   };
@@ -573,7 +571,7 @@ function LivePhase({room,myName,isHost,onRoomUpdate}) {
 
       if(w<0){
         // short was RIGHT -> hand out |w| * odds
-        const g=Math.round(Math.abs(w)*odds);
+        const g=Math.abs(w);
         giveTotals[p.name]=(giveTotals[p.name]||0)+g;
         outcomes[p.name]={give:g,drink:0};
       } else {
