@@ -556,6 +556,8 @@ function LivePhase({room,myName,isHost,onRoomUpdate}) {
       }
     });
     return {drinkTotals,giveTotals,outcomes};
+  };
+
   const endGame=useCallback(async()=>{
     if(endedRef.current) return; endedRef.current=true;
     const still=(room.bets||[]).filter(b=>(room.activeBets||[]).includes(b.id));
