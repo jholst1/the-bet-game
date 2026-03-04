@@ -695,8 +695,7 @@ function LivePhase({room,myName,isHost,onRoomUpdate}) {
       ),
       h("p",{className:"c-red text-xs mt2"},`Wrong guess penalty: ${highest} sips`)
     ),
-    isHost&&h(Btn,{onClick:endGame,color:"rose",sm:true},"End Game Early")
-  );
+    isHost&&h(Btn,{onClick:endGame,color:"rose",sm:true},"End Game Early");
 }
 
 // ── End ───────────────────────────────────────────────────────
