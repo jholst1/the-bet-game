@@ -692,65 +692,74 @@ function LivePhase({room,myName,isHost,onRoomUpdate}) {
 
 // ── End ───────────────────────────────────────────────────────
 function EndPhase({room,myName}) {
-  const drinkTotals=room.drinkTotals||{};
-  const giveTotals=room.giveTotals||{};
-  const players=(room.players||[]).map(p=>p.name);
+  const drinkTotals = room.drinkTotals || {};
+  const giveTotals  = room.giveTotals  || {};
+  const players = (room.players || []).map(p => p.name);
 
-  const rows=players.map(n=>({
-    name:n,
-    give:giveTotals[n]||0,
-    drink:drinkTotals[n]||0
-  })).sort((a,b)=> (b.drink-a.drink) || (b.give-a.give));
+  const rows = players
+    .map(name => ({
+      name,
+      give:  giveTotals[name]  || 0,
+      drink: drinkTotals[name] || 0,
+    }))
+    .sort((a,b) => (b.drink - a.drink) || (b.give - a.give));
 
-  const myGive=giveTotals[myName]||0;
-  const myDrink=drinkTotals[myName]||0;
+  const myGive  = giveTotals[myName]  || 0;
+  const myDrink = drinkTotals[myName] || 0;
 
- return h("div",{className:"col"},
-  h("div",{className:"text-center"},
-    h("div",{className:"text-5xl mb2"},"🏁"),
-    h("h2",{className:"font-black text-3xl",style:{margin:0}},"Game Over!"),
-    h("p",{className:"muted",style:{marginTop:".5rem"}},`Your totals: Drink ${myDrink}, Hand out ${myGive}`)
-  ),
-  ...
-);
+  const isHost = room.hostName === myName;
 
-    h(Card,{},
-      h("p",{className:"font-black mb2"},"Final Totals"),
-      h("div",{className:"table"},
-        h("div",{className:"row header"},
-          h("div",null,"Player"),
-          h("div",{style:{textAlign:"right"}},"Hand out"),
-          h("div",{style:{textAlign:"right"}},"Drink")
-        ),
-        rows.map(r=>h("div",{key:r.name,className:"row"},
-          h("div",null,r.name),
-          h("div",{style:{textAlign:"right"}},r.give),
-          h("div",{style:{textAlign:"right"}},r.drink)
-        ))
+  const playAgain = async () => {
+    const latest = await loadRoom(room.code);
+    if(!latest) return;
+
+    const reset = {
+      ...latest,
+      phase: "lobby",
+      // reset game state
+      bets: [],
+      votes: {},
+      wagers: {},
+      oddsMap: {},
+      activeBets: [],
+      verifiedBets: [],
+      expiredBets: [],
+      drinkTotals: {},
+      giveTotals: {},
+      timerEnd: null,
+      lastGuessResult: null,
+      lastVerifiedBet: null
+    };
+
+    await saveRoom(latest.code, reset);
+    // no need to location.reload; room subscription will update everyone automatically
+  };
+
+  return h("div",{className:"col"},
+    h("div",{className:"text-center"},
+      h("div",{className:"text-5xl mb2"},"🏁"),
+      h("h2",{className:"font-black text-3xl",style:{margin:0}},"Game Over!"),
+      h("p",{className:"muted",style:{marginTop:".5rem"}},
+        `Your totals: Drink ${myDrink}, Hand out ${myGive}`
       )
     ),
 
-    // Host-only: reset this same room so everyone can play again without sharing a new code
-    (room.hostName===myName) && h(Btn,{onClick:async()=>{
-      const latest = await loadRoom(room.code);
-      if(!latest) return;
-      const u={
-        ...latest,
-        phase:"lobby",
-        bets:[],
-        activeBets:[],
-        verifiedBets:[],
-        expiredBets:[],
-        wagers:{},
-        oddsMap:{},
-        drinkTotals:{},
-        giveTotals:{},
-        lastVerifiedBet:null,
-        lastGuessResult:null,
-        endsAt:null
-      };
-      await saveRoom(latest.code,u);
-    },color:"green",full:true},"Play again"),
+    h(Card,{},
+      h("p",{className:"font-black mb2"},"Final Totals"),
+      h("div",{className:"flex flex-col gap2"},
+        ...rows.map(r =>
+          h("div",{key:r.name,className:"row-between"},
+            h("div",null,r.name),
+            h("div",{className:"row",style:{gap:"1rem"}},
+              h("span",{className:"c-yellow font-bold"},`Hand out: ${r.give}`),
+              h("span",{className:"c-red font-bold"},`Drink: ${r.drink}`)
+            )
+          )
+        )
+      )
+    ),
+
+    isHost && h(Btn,{onClick:playAgain,color:"green",full:true},"Play again"),
     h(Btn,{onClick:()=>location.reload(),color:"gray",full:true},"Exit to home")
   );
 }
