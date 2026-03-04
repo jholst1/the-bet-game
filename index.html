@@ -619,6 +619,22 @@ function LivePhase({room,myName,isHost,onRoomUpdate}) {
     };
     await saveRoom(room.code,u); onRoomUpdate(u);
   };
+  const expireBet=async bet=>{
+    const res=resolveBetExpired(bet,room);
+    const u={...room,
+      activeBets:activeBetIds.filter(id=>id!==bet.id),
+      expiredBets:[...(room.expiredBets||[]),bet.id],
+      drinkTotals:res.drinkTotals,
+      giveTotals:res.giveTotals,
+      lastVerifiedBet:{
+        id:bet.id,target:bet.target,text:bet.text,author:bet.author,
+        outcomes:res.outcomes,
+        ts:Date.now()
+      }
+    };
+    await saveRoom(room.code,u); onRoomUpdate(u);
+  };
+
   const submitGuess=async()=>{
     if(!guessText.trim()) return;
     const otherBets=(room.bets||[]).filter(b=>b.group!==myGroup&&activeBetIds.includes(b.id));
@@ -672,7 +688,10 @@ function LivePhase({room,myName,isHost,onRoomUpdate}) {
         h("p",{className:"mb2 text-sm",style:{margin:"0 0 0.5rem"}},b.text),
         longs.length>0&&h("p",{className:"c-green text-xs mb1",style:{margin:"0 0 0.25rem"}},`📈 Long: ${longs.map(p=>`${p.name} (${(room.wagers||{})[p.name][b.id]})`).join(", ")}`),
         shorts.length>0&&h("p",{className:"c-orange text-xs mb2",style:{margin:"0 0 0.5rem"}},`📉 Short: ${shorts.map(p=>`${p.name} (${(room.wagers||{})[p.name][b.id]})`).join(", ")}`),
-        h(Btn,{onClick:()=>verifyBet(b),color:"green",sm:true},"✓ Verify — It Happened!")
+        isHost && h("div",{className:"flex gap2 mt2"},
+        h(Btn,{onClick:()=>verifyBet(b),color:"green",sm:true},"✓ It happened"),
+        h(Btn,{onClick:()=>expireBet(b),color:"rose",sm:true},"✕ Didn’t happen")
+      )
       );
     }),
     h(Btn,{onClick:()=>setShowGuess(!showGuess),color:"yellow",full:true},"🎯 Guess Their Bet"),
