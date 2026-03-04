@@ -571,7 +571,7 @@ function LivePhase({room,myName,isHost,onRoomUpdate}) {
 
       if(w<0){
         // short was RIGHT -> hand out |w| * odds
-        const g=Math.abs(w);
+        const g=Math.round(Math.abs(w)*odds);
         giveTotals[p.name]=(giveTotals[p.name]||0)+g;
         outcomes[p.name]={give:g,drink:0};
       } else {
@@ -585,7 +585,8 @@ function LivePhase({room,myName,isHost,onRoomUpdate}) {
 
   const endGame=useCallback(async()=>{
     if(endedRef.current) return; endedRef.current=true;
-    const still=(room.bets||[]).filter(b=>(room.activeBets||[]).includes(b.id));
+    const verifiedSet = new Set(room.verifiedBets||[]);
+    const still=(room.bets||[]).filter(b=>(room.activeBets||[]).includes(b.id) && !verifiedSet.has(b.id));
     let drinkTotals={...(room.drinkTotals||{})};
     let giveTotals={...(room.giveTotals||{})};
     // Any still-active bets at timer end are treated as "expired" (did NOT happen)
