@@ -4,7 +4,758 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>The Bet Game 🍺</title>
+<script src="https://cdn.tailwin<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>The Bet Game 🍺</title>
 <script src="https://cdn.tailwindcss.com"></script>
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@18",
+    "react-dom/client": "https://esm.sh/react-dom@18/client",
+    "firebase/app": "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js",
+    "firebase/database": "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js"
+  }
+}
+</script>
+<style>
+  body { background: linear-gradient(135deg, #0f0c29, #302b63, #24243e); min-height: 100vh; }
+  select option { background: #1e1b4b; }
+  * { box-sizing: border-box; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="module">
+import { createElement as h, useState, useEffect, useRef, useCallback } from "react";
+import { createRoot } from "react-dom/client";
+import { initializeApp } from "firebase/app";
+import { getDatabase, ref, set, onValue, get } from "firebase/database";
+
+// ── Firebase ──────────────────────────────────────────────────
+const firebaseConfig = {
+  apiKey: "AIzaSyC4nebdvhGrJgUpnUuC3ZeTBKyFRhVju_8",
+  authDomain: "the-bet-game.firebaseapp.com",
+  databaseURL: "https://the-bet-game-default-rtdb.firebaseio.com",
+  projectId: "the-bet-game",
+  storageBucket: "the-bet-game.firebasestorage.app",
+  messagingSenderId: "774165159243",
+  appId: "1:774165159243:web:f8bcd120572dbb1d1c9cce",
+  measurementId: "G-LBJEL7FHDC"
+};
+const firebaseApp = initializeApp(firebaseConfig);
+const db = getDatabase(firebaseApp);
+
+async function saveRoom(code, data) { await set(ref(db, `rooms/${code}`), data); }
+function subscribeRoom(code, cb) { return onValue(ref(db, `rooms/${code}`), s => { if (s.exists()) cb(s.val()); }); }
+async function loadRoom(code) { const s = await get(ref(db, `rooms/${code}`)); return s.exists() ? s.val() : null; }
+
+// ── Constants ─────────────────────────────────────────────────
+const SIPS = 14;
+// Odds scale: each vote option maps to a multiplier, can go below 1
+const LIKELIHOOD_OPTIONS = ["Very Unlikely", "Unlikely", "Neutral", "Likely", "Very Likely"];
+const ODDS_MAP = { "Very Unlikely": 2.5, "Unlikely": 1.5, "Neutral": 1, "Likely": 0.75, "Very Likely": 0.4 };
+
+function genCode(n = 5) { return Math.random().toString(36).substring(2, 2 + n).toUpperCase(); }
+
+function sipsToDrinks(sips) {
+  const abs = Math.abs(sips), sign = sips < 0 ? "-" : "";
+  const d = Math.floor(abs / SIPS), r = abs % SIPS;
+  if (d && r) return `${sign}${d} drink${d > 1 ? "s" : ""} + ${r} sip${r !== 1 ? "s" : ""}`;
+  if (d) return `${sign}${d} drink${d > 1 ? "s" : ""}`;
+  return `${sign}${r} sip${r !== 1 ? "s" : ""}`;
+}
+
+function computeOdds(betId, bets, votes, players) {
+  const bet = bets.find(b => b.id === betId);
+  if (!bet) return 1;
+  // Own group votes on their own bets
+  const voters = players.filter(p => p.group === bet.group);
+  if (!voters.length) return 1;
+  const total = voters.reduce((s, p) => {
+    const v = (votes[p.name] || {})[betId];
+    return s + (v ? ODDS_MAP[v] : 1);
+  }, 0);
+  return Math.round((total / voters.length) * 100) / 100;
+}
+
+// ── UI Primitives ─────────────────────────────────────────────
+function Btn({ onClick, children, color = "indigo", disabled, sm }) {
+  const base = "font-bold rounded-xl transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed";
+  const sz = sm ? "px-3 py-1.5 text-sm" : "px-5 py-3 text-base";
+  const cols = {
+    indigo: "bg-indigo-600 hover:bg-indigo-500 text-white",
+    red: "bg-red-600 hover:bg-red-500 text-white",
+    green: "bg-emerald-600 hover:bg-emerald-500 text-white",
+    gray: "bg-white/10 hover:bg-white/20 text-white border border-white/20",
+    yellow: "bg-yellow-500 hover:bg-yellow-400 text-black",
+    rose: "bg-rose-700 hover:bg-rose-600 text-white",
+    orange: "bg-orange-600 hover:bg-orange-500 text-white",
+  };
+  return h("button", { className: `${base} ${sz} ${cols[color]}`, onClick, disabled }, children);
+}
+function Card({ children, className = "" }) {
+  return h("div", { className: `bg-white/10 backdrop-blur border border-white/20 rounded-2xl p-5 ${className}` }, children);
+}
+function Input({ value, onChange, placeholder, className = "" }) {
+  return h("input", {
+    className: `bg-white/10 border border-white/20 rounded-xl px-4 py-2 text-white placeholder-white/40 outline-none focus:border-indigo-400 w-full ${className}`,
+    value, placeholder, onChange: e => onChange(e.target.value)
+  });
+}
+function Sel({ value, onChange, options }) {
+  return h("select", {
+    className: "bg-white/10 border border-white/20 rounded-xl px-4 py-2 text-white w-full outline-none",
+    value, onChange: e => onChange(e.target.value)
+  }, options.map(o => h("option", { key: o, value: o }, o)));
+}
+
+// Verify pop-up overlay
+function VerifyPopup({ bet, onClose }) {
+  return h("div", { className: "fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-6" },
+    h(Card, { className: "max-w-sm w-full text-center border-emerald-400" },
+      h("div", { className: "text-5xl mb-3" }, "✅"),
+      h("p", { className: "text-emerald-400 font-black text-xl mb-2" }, "Bet Verified!"),
+      h("p", { className: "text-white/60 text-sm mb-1" }, `${bet.author} bet that`),
+      h("p", { className: "text-indigo-300 font-semibold mb-1" }, bet.target),
+      h("p", { className: "text-white text-lg mb-4" }, bet.text),
+      h(Btn, { onClick: onClose, color: "green" }, "Got it!")
+    )
+  );
+}
+
+// Short win: hand out sips screen
+function HandOutPopup({ sips, players, myName, onDone }) {
+  const [chosen, setChosen] = useState(players[0]?.name || "");
+  return h("div", { className: "fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-6" },
+    h(Card, { className: "max-w-sm w-full text-center border-yellow-400" },
+      h("div", { className: "text-5xl mb-3" }, "🎉"),
+      h("p", { className: "text-yellow-300 font-black text-xl mb-2" }, "Short Bet Won!"),
+      h("p", { className: "text-white/70 mb-4" }, `The bet didn't happen — hand out ${Math.abs(sips)} sips to:`),
+      h(Sel, { value: chosen, onChange: setChosen, options: players.map(p => p.name) }),
+      h("div", { className: "mt-4" },
+        h(Btn, { onClick: () => onDone(chosen), color: "yellow" }, `Give ${Math.abs(sips)} sips to ${chosen}`)
+      )
+    )
+  );
+}
+
+// ── Landing ───────────────────────────────────────────────────
+function Landing({ onHost, onJoin }) {
+  const [code, setCode] = useState("");
+  return h("div", { className: "flex flex-col items-center gap-6 py-10" },
+    h("div", { className: "text-6xl" }, "🍺"),
+    h("h1", { className: "text-4xl font-black tracking-tight text-white" }, "The Bet Game"),
+    h("p", { className: "text-white/60 text-center max-w-xs" }, "A party drinking game where you bet on what the other team will do."),
+    h("div", { className: "flex flex-col gap-3 w-full max-w-xs" },
+      h(Btn, { onClick: onHost, color: "indigo" }, "Host a Game"),
+      h("div", { className: "flex gap-2" },
+        h(Input, { value: code, onChange: v => setCode(v.toUpperCase()), placeholder: "Room code" }),
+        h(Btn, { onClick: () => onJoin(code), color: "gray", sm: true }, "Join")
+      )
+    )
+  );
+}
+
+// ── Host Setup ────────────────────────────────────────────────
+function HostSetup({ onStart }) {
+  const [name, setName] = useState("");
+  const [minutes, setMinutes] = useState(20);
+  const code = useRef(genCode()).current;
+  const start = async () => {
+    if (!name.trim()) return;
+    const room = {
+      code, phase: "lobby", hostName: name.trim(), timerMinutes: minutes,
+      players: [{ name: name.trim(), group: null, id: genCode() }],
+      bets: [], votes: {}, wagers: {}, oddsMap: {},
+      verifiedBets: [], expiredBets: [], drinkTotals: {},
+      timerEnd: null, guessLog: [], activeBets: [], lastGuessResult: null
+    };
+    await saveRoom(code, room);
+    onStart(room, name.trim());
+  };
+  return h("div", { className: "flex flex-col gap-5 max-w-sm mx-auto py-8 text-white" },
+    h("h2", { className: "text-2xl font-bold" }, "Host Setup"),
+    h(Card, {}, h("p", { className: "text-white/60 text-sm mb-3" }, "Your name"), h(Input, { value: name, onChange: setName, placeholder: "Enter your name" })),
+    h(Card, {},
+      h("p", { className: "text-white/60 text-sm mb-3" }, "Timer (minutes)"),
+      h("div", { className: "flex items-center gap-4" },
+        h(Btn, { onClick: () => setMinutes(m => Math.max(5, m - 5)), color: "gray", sm: true }, "−"),
+        h("span", { className: "text-3xl font-black w-16 text-center" }, minutes),
+        h(Btn, { onClick: () => setMinutes(m => m + 5), color: "gray", sm: true }, "+")
+      )
+    ),
+    h(Btn, { onClick: start, color: "green" }, "Create Room")
+  );
+}
+
+// ── Lobby ─────────────────────────────────────────────────────
+function Lobby({ room, myName, isHost, onRoomUpdate }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => { navigator.clipboard?.writeText(room.code); setCopied(true); setTimeout(() => setCopied(false), 2000); };
+
+  const removePlayer = async name => {
+    if (!window.confirm(`Remove ${name}?`)) return;
+    const updated = { ...room, players: room.players.filter(p => p.name !== name), bets: (room.bets || []).filter(b => b.author !== name) };
+    await saveRoom(room.code, updated); onRoomUpdate(updated);
+  };
+
+  const startGame = async () => {
+    if (room.players.length < 2) { alert("Need at least 2 players."); return; }
+    const shuffled = [...room.players].sort(() => Math.random() - 0.5);
+    const half = Math.ceil(shuffled.length / 2);
+    const updated = { ...room, phase: "betting", players: shuffled.map((p, i) => ({ ...p, group: i < half ? "A" : "B" })) };
+    await saveRoom(room.code, updated); onRoomUpdate(updated);
+  };
+
+  return h("div", { className: "flex flex-col gap-5 max-w-sm mx-auto py-6 text-white" },
+    h(Card, { className: "flex items-center justify-between" },
+      h("div", {}, h("p", { className: "text-white/50 text-sm" }, "Room Code"), h("p", { className: "text-3xl font-black tracking-widest" }, room.code)),
+      h(Btn, { onClick: copy, color: "gray", sm: true }, copied ? "Copied!" : "Copy")
+    ),
+    h(Card, {},
+      h("p", { className: "text-white/60 text-sm mb-3" }, `Players (${room.players.length})`),
+      h("div", { className: "flex flex-col gap-2" },
+        ...room.players.map(p => h("div", { key: p.id, className: "flex items-center justify-between" },
+          h("div", { className: "flex items-center gap-2" },
+            h("span", { className: "w-2 h-2 rounded-full bg-emerald-400 inline-block" }),
+            h("span", {}, `${p.name}${p.name === room.hostName ? " 👑" : ""}`)
+          ),
+          isHost && p.name !== myName && h(Btn, { onClick: () => removePlayer(p.name), color: "rose", sm: true }, "Remove")
+        ))
+      )
+    ),
+    h("p", { className: "text-white/50 text-sm text-center" }, `Timer: ${room.timerMinutes} min · ${SIPS} sips = 1 drink`),
+    isHost ? h(Btn, { onClick: startGame, color: "green" }, "Split Groups & Start Betting")
+           : h("p", { className: "text-center text-white/50 animate-pulse" }, "Waiting for host to start…")
+  );
+}
+
+// ── Betting ───────────────────────────────────────────────────
+function BettingPhase({ room, myName, isHost, onRoomUpdate }) {
+  const me = room.players.find(p => p.name === myName);
+  const myGroup = me?.group;
+  const others = room.players.filter(p => p.group !== myGroup);
+  const myBets = (room.bets || []).filter(b => b.author === myName);
+  const locked = myBets.some(b => b.locked);
+  const [betText, setBetText] = useState("");
+  const [target, setTarget] = useState(others[0]?.name || "");
+
+  const removePlayer = async name => {
+    if (!window.confirm(`Remove ${name}? Their bets will also be removed.`)) return;
+    const updated = { ...room, players: room.players.filter(p => p.name !== name), bets: (room.bets || []).filter(b => b.author !== name) };
+    await saveRoom(room.code, updated); onRoomUpdate(updated);
+  };
+
+  const addBet = async () => {
+    if (!betText.trim() || myBets.length >= 5 || locked) return;
+    const nb = { id: genCode(), author: myName, group: myGroup, target, text: betText.trim(), locked: false };
+    const updated = { ...room, bets: [...(room.bets || []), nb] };
+    await saveRoom(room.code, updated); onRoomUpdate(updated); setBetText("");
+  };
+
+  const removeBet = async id => {
+    const updated = { ...room, bets: room.bets.filter(b => b.id !== id) };
+    await saveRoom(room.code, updated); onRoomUpdate(updated);
+  };
+
+  const lockBets = async () => {
+    if (myBets.length === 0) { alert("Add at least 1 bet first."); return; }
+    const updated = { ...room, bets: room.bets.map(b => b.author === myName ? { ...b, locked: true } : b) };
+    await saveRoom(room.code, updated); onRoomUpdate(updated);
+  };
+
+  const allLocked = room.players.every(p => (room.bets || []).some(b => b.author === p.name && b.locked));
+  const startVoting = async () => { await saveRoom(room.code, { ...room, phase: "voting" }); onRoomUpdate({ ...room, phase: "voting" }); };
+
+  return h("div", { className: "flex flex-col gap-5 max-w-sm mx-auto py-6 text-white" },
+    h("div", { className: "flex items-center justify-between" },
+      h("h2", { className: "text-xl font-bold" }, "Betting Phase"),
+      h("span", { className: `text-sm font-bold px-3 py-1 rounded-full ${myGroup === "A" ? "bg-blue-600" : "bg-red-600"}` }, myGroup === "A" ? "🔵 Group A" : "🔴 Group B")
+    ),
+    h(Card, {},
+      h("p", { className: "text-white/60 text-sm mb-1" }, `Your group: ${room.players.filter(p => p.group === myGroup).map(p => p.name).join(", ")}`),
+      h("p", { className: "text-white/60 text-sm" }, `Other group: ${others.map(p => p.name).join(", ")}`)
+    ),
+    !locked && h(Card, {},
+      h("p", { className: "font-semibold mb-3" }, `Write a bet (${myBets.length}/5)`),
+      h("p", { className: "text-white/50 text-sm mb-1" }, "Bet about:"),
+      h(Sel, { value: target, onChange: setTarget, options: others.map(p => p.name) }),
+      h("div", { className: "mt-3" }, h(Input, { value: betText, onChange: setBetText, placeholder: `e.g. ${target} will spill their drink` })),
+      h("div", { className: "mt-3 flex gap-2" },
+        h(Btn, { onClick: addBet, color: "indigo", sm: true, disabled: myBets.length >= 5 || !betText.trim() }, "Add Bet"),
+        myBets.length > 0 && h(Btn, { onClick: lockBets, color: "green", sm: true }, "Lock In")
+      )
+    ),
+    myBets.length > 0 && h(Card, {},
+      locked && h("p", { className: "text-emerald-400 font-bold mb-3" }, "✓ Bets locked in!"),
+      h("div", { className: "flex flex-col gap-2" },
+        ...myBets.map(b => h("div", { key: b.id, className: "flex items-start justify-between gap-2 bg-white/5 rounded-lg px-3 py-2 text-sm" },
+          h("span", {}, h("span", { className: "text-indigo-300 font-semibold" }, `${b.target}: `), b.text),
+          !locked && h("button", { onClick: () => removeBet(b.id), className: "text-white/30 hover:text-red-400 ml-2 shrink-0" }, "✕")
+        ))
+      )
+    ),
+    h(Card, {},
+      h("p", { className: "text-white/60 text-sm mb-2" }, "Player status:"),
+      h("div", { className: "flex flex-col gap-1" },
+        ...room.players.map(p => {
+          const pLocked = (room.bets || []).some(b => b.author === p.name && b.locked);
+          return h("div", { key: p.name, className: "flex items-center justify-between" },
+            h("div", { className: "flex items-center gap-2 text-sm" },
+              h("span", { className: pLocked ? "text-emerald-400" : "text-white/30" }, pLocked ? "✓" : "○"),
+              h("span", { className: pLocked ? "" : "text-white/40" }, p.name)
+            ),
+            isHost && p.name !== myName && h(Btn, { onClick: () => removePlayer(p.name), color: "rose", sm: true }, "Remove")
+          );
+        })
+      )
+    ),
+    allLocked && isHost && h(Btn, { onClick: startVoting, color: "yellow" }, "Everyone's In — Start Voting")
+  );
+}
+
+// ── Voting — each player votes on ALL bets from their OWN group ──
+function VotingPhase({ room, myName, isHost, onRoomUpdate }) {
+  const me = room.players.find(p => p.name === myName);
+  const myGroup = me?.group;
+  // Vote on own group's bets
+  const myGroupBets = (room.bets || []).filter(b => b.group === myGroup && b.locked);
+  const myVotes = (room.votes || {})[myName] || {};
+
+  const vote = async (betId, likelihood) => {
+    const updated = { ...room, votes: { ...(room.votes || {}), [myName]: { ...myVotes, [betId]: likelihood } } };
+    await saveRoom(room.code, updated); onRoomUpdate(updated);
+  };
+
+  const everyoneVoted = room.players.every(p => {
+    const grpBets = (room.bets || []).filter(b => b.group === p.group && b.locked);
+    return grpBets.every(b => ((room.votes || {})[p.name] || {})[b.id]);
+  });
+
+  const startWagering = async () => {
+    const oddsMap = {};
+    (room.bets || []).filter(b => b.locked).forEach(b => {
+      oddsMap[b.id] = computeOdds(b.id, room.bets, room.votes || {}, room.players);
+    });
+    await saveRoom(room.code, { ...room, phase: "wagering", oddsMap });
+    onRoomUpdate({ ...room, phase: "wagering", oddsMap });
+  };
+
+  return h("div", { className: "flex flex-col gap-5 max-w-sm mx-auto py-6 text-white" },
+    h("h2", { className: "text-xl font-bold" }, "Vote on Your Bets"),
+    h("p", { className: "text-white/60 text-sm" }, "Rate how likely each of your group's bets are to happen. This sets the odds."),
+    myGroupBets.length === 0 && h("p", { className: "text-white/40 text-sm" }, "No bets to vote on."),
+    ...myGroupBets.map(b => h(Card, { key: b.id },
+      h("p", { className: "text-sm text-indigo-300 font-semibold mb-1" }, b.target),
+      h("p", { className: "mb-3" }, b.text),
+      h("p", { className: "text-white/50 text-xs mb-2" }, "How likely is this to happen?"),
+      h("div", { className: "flex flex-wrap gap-2" },
+        ...LIKELIHOOD_OPTIONS.map(l => h("button", {
+          key: l,
+          className: `px-3 py-1.5 text-xs rounded-full border transition-all ${myVotes[b.id] === l ? "bg-indigo-600 border-indigo-400 text-white" : "border-white/20 text-white/60 hover:border-white/40"}`,
+          onClick: () => vote(b.id, l)
+        }, l))
+      )
+    )),
+    h(Card, {},
+      h("p", { className: "text-white/60 text-sm mb-2" }, "Waiting for votes…"),
+      ...room.players.map(p => {
+        const grpBets = (room.bets || []).filter(b => b.group === p.group && b.locked);
+        const done = grpBets.every(b => ((room.votes || {})[p.name] || {})[b.id]);
+        return h("div", { key: p.name, className: "flex items-center gap-2 text-sm mb-1" },
+          h("span", { className: done ? "text-emerald-400" : "text-white/30" }, done ? "✓" : "○"),
+          h("span", { className: done ? "" : "text-white/40" }, p.name)
+        );
+      })
+    ),
+    everyoneVoted && isHost && h(Btn, { onClick: startWagering, color: "yellow" }, "All Votes In — Set Wagers")
+  );
+}
+
+// ── Wagering — 0 to ±14 sips, negative = short ───────────────
+function WageringPhase({ room, myName, isHost, onRoomUpdate }) {
+  const myBets = (room.bets || []).filter(b => b.author === myName && b.locked);
+  const existingWagers = (room.wagers || {})[myName] || {};
+  const [wagers, setWagers] = useState(() => {
+    const w = {};
+    myBets.forEach(b => { w[b.id] = existingWagers[b.id] ?? 0; });
+    return w;
+  });
+  const saved = Object.keys((room.wagers || {})[myName] || {}).length >= myBets.length && myBets.length > 0;
+
+  const setW = (id, val) => setWagers(w => ({ ...w, [id]: Math.max(-SIPS, Math.min(SIPS, val)) }));
+
+  const saveWagers = async () => {
+    const updated = { ...room, wagers: { ...(room.wagers || {}), [myName]: wagers } };
+    await saveRoom(room.code, updated); onRoomUpdate(updated);
+  };
+
+  const allWagered = room.players.every(p => {
+    const pb = (room.bets || []).filter(b => b.author === p.name && b.locked);
+    return pb.length === 0 || Object.keys((room.wagers || {})[p.name] || {}).length >= pb.length;
+  });
+
+  const startGame = async () => {
+    const timerEnd = Date.now() + room.timerMinutes * 60 * 1000;
+    const updated = { ...room, phase: "live", timerEnd, activeBets: (room.bets || []).filter(b => b.locked).map(b => b.id) };
+    await saveRoom(room.code, updated); onRoomUpdate(updated);
+  };
+
+  return h("div", { className: "flex flex-col gap-5 max-w-sm mx-auto py-6 text-white" },
+    h("h2", { className: "text-xl font-bold" }, "Place Your Wagers"),
+    h(Card, { className: "border-yellow-400/40" },
+      h("p", { className: "text-yellow-300 font-semibold text-sm" }, "💡 Wager guide"),
+      h("p", { className: "text-white/60 text-xs mt-1" }, "Positive sips = betting it WILL happen. Negative sips = shorting it (betting it WON'T). 0 = sit this one out.")
+    ),
+    ...myBets.map(b => {
+      const odds = (room.oddsMap || {})[b.id] ?? 1;
+      const w = wagers[b.id] ?? 0;
+      const isShort = w < 0;
+      return h(Card, { key: b.id, className: isShort ? "border-orange-400/50" : "" },
+        h("p", { className: "text-sm text-indigo-300 font-semibold" }, b.target),
+        h("p", { className: "mb-2" }, b.text),
+        h("p", { className: "text-yellow-300 text-sm font-bold mb-1" }, `Odds: ${odds}x`),
+        h("p", { className: `text-xs mb-3 ${isShort ? "text-orange-300" : w === 0 ? "text-white/40" : "text-emerald-300"}` },
+          isShort ? `📉 Shorting — if it doesn't happen, hand out ${Math.abs(w)} sips` :
+          w === 0 ? "No wager" :
+          `📈 Long — if it happens, ${b.target} drinks ${Math.round(w * odds)} sips`
+        ),
+        h("div", { className: "flex items-center gap-3" },
+          h(Btn, { onClick: () => setW(b.id, w - 1), color: "gray", sm: true, disabled: w <= -SIPS }, "−"),
+          h("span", { className: `text-2xl font-black w-14 text-center ${isShort ? "text-orange-300" : w === 0 ? "text-white/40" : "text-emerald-300"}` }, w),
+          h(Btn, { onClick: () => setW(b.id, w + 1), color: "gray", sm: true, disabled: w >= SIPS }, "+")
+        )
+      );
+    }),
+    !saved && h(Btn, { onClick: saveWagers, color: "green" }, "Save Wagers"),
+    saved && h("p", { className: "text-emerald-400 text-center font-bold" }, "✓ Wagers saved!"),
+    h(Card, {},
+      ...room.players.map(p => {
+        const pb = (room.bets || []).filter(b => b.author === p.name && b.locked);
+        const done = pb.length === 0 || Object.keys((room.wagers || {})[p.name] || {}).length >= pb.length;
+        return h("div", { key: p.name, className: "flex items-center gap-2 text-sm mb-1" },
+          h("span", { className: done ? "text-emerald-400" : "text-white/30" }, done ? "✓" : "○"),
+          h("span", { className: done ? "" : "text-white/40" }, p.name)
+        );
+      })
+    ),
+    allWagered && isHost && h(Btn, { onClick: startGame, color: "red" }, "Start the Game! 🎉")
+  );
+}
+
+// ── Live ──────────────────────────────────────────────────────
+function LivePhase({ room, myName, isHost, onRoomUpdate }) {
+  const me = room.players.find(p => p.name === myName);
+  const myGroup = me?.group;
+  const [timeLeft, setTimeLeft] = useState(Math.max(0, (room.timerEnd || 0) - Date.now()));
+  const [guessText, setGuessText] = useState("");
+  const [showGuess, setShowGuess] = useState(false);
+  const [verifyPopup, setVerifyPopup] = useState(null);
+  const lastVerifiedRef = useRef(null);
+
+  // Show verify popup on ALL devices when any bet is verified
+  useEffect(() => {
+    const lv = room.lastVerifiedBet;
+    if (!lv) return;
+    if (lastVerifiedRef.current === lv.ts) return;
+    lastVerifiedRef.current = lv.ts;
+    setVerifyPopup(lv);
+  }, [room.lastVerifiedBet]);
+  const [handOutPopup, setHandOutPopup] = useState(null); // { wagerer, sips }
+  const endedRef = useRef(false);
+
+  useEffect(() => {
+    const iv = setInterval(() => setTimeLeft(Math.max(0, (room.timerEnd || 0) - Date.now())), 1000);
+    return () => clearInterval(iv);
+  }, [room.timerEnd]);
+
+  const activeBetIds = room.activeBets || [];
+  const myGroupBets = (room.bets || []).filter(b => b.group === myGroup && activeBetIds.includes(b.id));
+
+  const fmt = ms => { const s = Math.floor(ms / 1000), m = Math.floor(s / 60); return `${m}:${String(s % 60).padStart(2, "0")}`; };
+
+  // Resolve a bet being verified: long bettors' targets drink, short bettors drink their negative amount
+  const resolveBetVerified = (bet, currentRoom) => {
+    const prev = currentRoom.drinkTotals || {};
+    const totals = { ...prev };
+    const odds = (currentRoom.oddsMap || {})[bet.id] || 1;
+    // All players who wagered on this bet
+    currentRoom.players.forEach(p => {
+      const w = (currentRoom.wagers || {})[p.name]?.[bet.id];
+      if (w === undefined || w === null || w === 0) return;
+      if (w > 0) {
+        // Long — target drinks wager * odds
+        totals[bet.target] = (totals[bet.target] || 0) + Math.round(w * odds);
+      } else {
+        // Short — bettor drinks their absolute wager (they bet it wouldn't happen, they lost)
+        totals[p.name] = (totals[p.name] || 0) + Math.abs(w);
+      }
+    });
+    return totals;
+  };
+
+  // On expiry/end: short bettors WIN and get to hand out, long bettors drink their wager back
+  const resolveBetExpired = (bet, currentRoom, totals) => {
+    const newTotals = { ...totals };
+    currentRoom.players.forEach(p => {
+      const w = (currentRoom.wagers || {})[p.name]?.[bet.id];
+      if (w === undefined || w === null || w === 0) return;
+      if (w > 0) {
+        // Long — bet didn't happen, they drink their wager
+        newTotals[p.name] = (newTotals[p.name] || 0) + w;
+      }
+      // Short winners handled via hand-out popup (tracked separately)
+    });
+    return newTotals;
+  };
+
+  const endGame = useCallback(async () => {
+    if (endedRef.current) return;
+    endedRef.current = true;
+    const still = (room.bets || []).filter(b => (room.activeBets || []).includes(b.id));
+    let totals = { ...(room.drinkTotals || {}) };
+    // Collect short winners to hand out
+    const shortWins = [];
+    still.forEach(b => {
+      totals = resolveBetExpired(b, room, totals);
+      room.players.forEach(p => {
+        const w = (room.wagers || {})[p.name]?.[b.id];
+        if (w && w < 0) shortWins.push({ wagerer: p.name, sips: Math.abs(w), bet: b });
+      });
+    });
+    const updated = { ...room, phase: "end", activeBets: [], expiredBets: [...(room.expiredBets || []), ...still.map(b => b.id)], drinkTotals: totals, shortWins };
+    await saveRoom(room.code, updated); onRoomUpdate(updated);
+  }, [room]);
+
+  useEffect(() => { if (timeLeft === 0 && room.phase === "live" && isHost) endGame(); }, [timeLeft]);
+
+  const verifyBet = async bet => {
+    const totals = resolveBetVerified(bet, room);
+    const updated = {
+      ...room,
+      activeBets: activeBetIds.filter(id => id !== bet.id),
+      verifiedBets: [...(room.verifiedBets || []), bet.id],
+      drinkTotals: totals,
+      lastVerifiedBet: { id: bet.id, target: bet.target, text: bet.text, author: bet.author, ts: Date.now() }
+    };
+    await saveRoom(room.code, updated); onRoomUpdate(updated);
+  };
+
+  const submitGuess = async () => {
+    if (!guessText.trim()) return;
+    const otherBets = (room.bets || []).filter(b => b.group !== myGroup && activeBetIds.includes(b.id));
+    const match = otherBets.find(b =>
+      b.text.toLowerCase().includes(guessText.toLowerCase().trim()) ||
+      guessText.toLowerCase().trim().includes(b.text.toLowerCase().substring(0, 12))
+    );
+    const prev = room.drinkTotals || {};
+    if (match) {
+      const wager = (room.wagers || {})[match.author]?.[match.id] || 1;
+      const updated = {
+        ...room,
+        activeBets: activeBetIds.filter(id => id !== match.id),
+        expiredBets: [...(room.expiredBets || []), match.id],
+        drinkTotals: { ...prev, [match.author]: (prev[match.author] || 0) + wager },
+        lastGuessResult: { guesser: myName, correct: true, give: 10 }
+      };
+      await saveRoom(room.code, updated); onRoomUpdate(updated);
+    } else {
+      const highest = Math.max(1, ...otherBets.map(b => Math.abs((room.wagers || {})[b.author]?.[b.id] || 1)));
+      const updated = {
+        ...room,
+        drinkTotals: { ...prev, [myName]: (prev[myName] || 0) + highest },
+        lastGuessResult: { guesser: myName, correct: false, penalty: highest }
+      };
+      await saveRoom(room.code, updated); onRoomUpdate(updated);
+    }
+    setGuessText(""); setShowGuess(false);
+  };
+
+  const timerColor = timeLeft < 60000 ? "text-red-400" : timeLeft < 180000 ? "text-yellow-400" : "text-emerald-400";
+  const res = room.lastGuessResult;
+  const otherActiveBets = (room.bets || []).filter(b => b.group !== myGroup && activeBetIds.includes(b.id));
+  const highest = Math.max(1, ...otherActiveBets.map(b => Math.abs((room.wagers || {})[b.author]?.[b.id] || 1)));
+
+  return h("div", { className: "flex flex-col gap-4 max-w-sm mx-auto py-4 text-white" },
+    // Verify popup
+    verifyPopup && h(VerifyPopup, { bet: verifyPopup, onClose: () => setVerifyPopup(null) }),
+    // Hand out popup (short win)
+    handOutPopup && h(HandOutPopup, {
+      sips: handOutPopup.sips,
+      players: room.players.filter(p => p.name !== myName),
+      myName,
+      onDone: async chosen => {
+        const prev = room.drinkTotals || {};
+        const updated = { ...room, drinkTotals: { ...prev, [chosen]: (prev[chosen] || 0) + handOutPopup.sips } };
+        await saveRoom(room.code, updated); onRoomUpdate(updated); setHandOutPopup(null);
+      }
+    }),
+    h("div", { className: "flex items-center justify-between" },
+      h("span", { className: `text-4xl font-black tabular-nums ${timerColor}` }, fmt(timeLeft)),
+      h("span", { className: `text-sm font-bold px-3 py-1 rounded-full ${myGroup === "A" ? "bg-blue-600" : "bg-red-600"}` }, myGroup === "A" ? "🔵 Group A" : "🔴 Group B")
+    ),
+    res && h(Card, { className: res.correct ? "border-emerald-400" : "border-red-400" },
+      res.correct
+        ? h("p", { className: "text-emerald-300 font-bold" }, `✓ ${res.guesser} guessed correctly! They hand out 10 sips.`)
+        : h("p", { className: "text-red-300 font-bold" }, `✗ ${res.guesser} guessed wrong — drinks ${res.penalty} sips!`)
+    ),
+    h("h3", { className: "font-bold text-white/80" }, "Your Group's Active Bets"),
+    myGroupBets.length === 0 && h("p", { className: "text-white/40 text-sm" }, "No active bets."),
+    ...myGroupBets.map(b => {
+      const odds = (room.oddsMap || {})[b.id] || 1;
+      // Show all wagers on this bet
+      const longWagers = room.players.filter(p => ((room.wagers || {})[p.name]?.[b.id] || 0) > 0);
+      const shortWagers = room.players.filter(p => ((room.wagers || {})[p.name]?.[b.id] || 0) < 0);
+      return h(Card, { key: b.id },
+        h("div", { className: "flex justify-between items-start mb-1" },
+          h("p", { className: "text-sm text-indigo-300 font-semibold" }, b.target),
+          h("span", { className: "text-yellow-300 text-xs font-bold" }, `${odds}x odds`)
+        ),
+        h("p", { className: "mb-2 text-sm" }, b.text),
+        longWagers.length > 0 && h("p", { className: "text-emerald-300 text-xs mb-1" }, `📈 Long: ${longWagers.map(p => `${p.name} (${(room.wagers || {})[p.name][b.id]})`).join(", ")}`),
+        shortWagers.length > 0 && h("p", { className: "text-orange-300 text-xs mb-2" }, `📉 Short: ${shortWagers.map(p => `${p.name} (${(room.wagers || {})[p.name][b.id]})`).join(", ")}`),
+        h(Btn, { onClick: () => verifyBet(b), color: "green", sm: true }, "✓ Verify — It Happened!")
+      );
+    }),
+    h(Btn, { onClick: () => setShowGuess(!showGuess), color: "yellow" }, "🎯 Guess Their Bet"),
+    showGuess && h(Card, {},
+      h("p", { className: "text-sm text-white/60 mb-2" }, "Type roughly what you think their bet says:"),
+      h(Input, { value: guessText, onChange: setGuessText, placeholder: "They bet that..." }),
+      h("div", { className: "mt-3 flex gap-2" },
+        h(Btn, { onClick: submitGuess, color: "indigo", sm: true }, "Submit Guess"),
+        h(Btn, { onClick: () => setShowGuess(false), color: "gray", sm: true }, "Cancel")
+      ),
+      h("p", { className: "text-red-300 text-xs mt-2" }, `Wrong guess penalty: ${highest} sips`)
+    ),
+    isHost && h(Btn, { onClick: endGame, color: "red", sm: true }, "End Game Early")
+  );
+}
+
+// ── End ───────────────────────────────────────────────────────
+function EndPhase({ room, myName }) {
+  const totals = room.drinkTotals || {};
+  const sorted = Object.entries(totals).sort((a, b) => b[1] - a[1]);
+  const myTotal = totals[myName] || 0;
+  // Short wins that need to be handed out
+  const myShortWins = (room.shortWins || []).filter(sw => sw.wagerer === myName);
+  const [handOutPopup, setHandOutPopup] = useState(myShortWins.length > 0 ? myShortWins[0] : null);
+  const [handedOut, setHandedOut] = useState([]);
+
+  const handleHandOut = async chosen => {
+    const sw = handOutPopup;
+    const prev = room.drinkTotals || {};
+    const updated = { ...room, drinkTotals: { ...prev, [chosen]: (prev[chosen] || 0) + sw.sips } };
+    await set(ref(db, `rooms/${room.code}`), updated);
+    const next = myShortWins.find(s => !handedOut.includes(s) && s !== sw);
+    setHandedOut(h => [...h, sw]);
+    setHandOutPopup(next || null);
+  };
+
+  return h("div", { className: "flex flex-col gap-5 max-w-sm mx-auto py-6 text-white" },
+    handOutPopup && h(HandOutPopup, {
+      sips: handOutPopup.sips,
+      players: room.players.filter(p => p.name !== myName),
+      myName,
+      onDone: handleHandOut
+    }),
+    h("div", { className: "text-center" },
+      h("div", { className: "text-5xl mb-2" }, "🏁"),
+      h("h2", { className: "text-3xl font-black" }, "Game Over!")
+    ),
+    myShortWins.length > 0 && h(Card, { className: "border-orange-400/50" },
+      h("p", { className: "text-orange-300 font-bold mb-1" }, "📉 Your short bets that paid off:"),
+      ...myShortWins.map((sw, i) => h("p", { key: i, className: "text-white/70 text-sm" }, `"${sw.bet.text}" — hand out ${sw.sips} sips`))
+    ),
+    h(Card, {},
+      h("p", { className: "font-bold text-lg mb-3" }, "Drink Totals"),
+      sorted.length === 0
+        ? h("p", { className: "text-white/40" }, "No drinks owed!")
+        : sorted.map(([name, sips]) => h("div", { key: name, className: `flex justify-between items-center mb-2 p-2 rounded-lg ${name === myName ? "bg-indigo-600/30 border border-indigo-400/40" : ""}` },
+            h("span", { className: "font-semibold" }, `${name}${name === myName ? " (you)" : ""}`),
+            h("span", { className: "text-yellow-300 font-black" }, sipsToDrinks(sips))
+          ))
+    ),
+    h(Card, {},
+      h("p", { className: "text-white/60 text-sm mb-1" }, "Your total"),
+      h("p", { className: "text-4xl font-black text-yellow-300" }, sipsToDrinks(myTotal)),
+      h("p", { className: "text-white/40 text-sm mt-1" }, `(${myTotal} sips)`)
+    )
+  );
+}
+
+// ── App Shell ─────────────────────────────────────────────────
+function App() {
+  const [screen, setScreen] = useState("landing");
+  const [room, setRoom] = useState(null);
+  const [myName, setMyName] = useState("");
+  const [joinCode, setJoinCode] = useState("");
+  const [joinName, setJoinName] = useState("");
+  const [joinError, setJoinError] = useState("");
+  const unsubRef = useRef(null);
+
+  const subscribe = useCallback(code => {
+    if (unsubRef.current) unsubRef.current();
+    unsubRef.current = subscribeRoom(code, setRoom);
+  }, []);
+
+  useEffect(() => () => { if (unsubRef.current) unsubRef.current(); }, []);
+
+  const handleHost = (r, name) => { setRoom(r); setMyName(name); setScreen("game"); subscribe(r.code); };
+
+  const handleJoinCode = async code => {
+    setJoinError("");
+    if (!code) return;
+    const r = await loadRoom(code);
+    if (!r) { setJoinError("Room not found."); return; }
+    setJoinCode(code); setRoom(r); setScreen("joining");
+  };
+
+  const confirmJoin = async () => {
+    if (!joinName.trim()) return;
+    const r = await loadRoom(joinCode);
+    if (!r) { setJoinError("Room expired."); return; }
+    const already = r.players.find(p => p.name === joinName.trim());
+    const updated = already ? r : { ...r, players: [...r.players, { name: joinName.trim(), group: null, id: genCode() }] };
+    if (!already) await saveRoom(r.code, updated);
+    setMyName(joinName.trim()); setRoom(updated); setScreen("game"); subscribe(updated.code);
+  };
+
+  const wrap = child => h("div", { className: "min-h-screen text-white p-4 pb-10" }, child);
+
+  if (screen === "landing") return wrap(h(Landing, { onHost: () => setScreen("hostSetup"), onJoin: handleJoinCode }));
+  if (screen === "hostSetup") return wrap(h(HostSetup, { onStart: handleHost }));
+  if (screen === "joining") return wrap(
+    h("div", { className: "flex flex-col items-center justify-center min-h-screen gap-4" },
+      h("h2", { className: "text-2xl font-bold" }, `Joining Room ${joinCode}`),
+      h(Input, { value: joinName, onChange: setJoinName, placeholder: "Your name", className: "max-w-xs" }),
+      joinError && h("p", { className: "text-red-400 text-sm" }, joinError),
+      h(Btn, { onClick: confirmJoin, color: "green" }, "Join Game")
+    )
+  );
+  if (!room) return null;
+
+  const isHost = myName === room.hostName;
+  const phases = {
+    lobby: h(Lobby, { room, myName, isHost, onRoomUpdate: setRoom }),
+    betting: h(BettingPhase, { room, myName, isHost, onRoomUpdate: setRoom }),
+    voting: h(VotingPhase, { room, myName, isHost, onRoomUpdate: setRoom }),
+    wagering: h(WageringPhase, { room, myName, isHost, onRoomUpdate: setRoom }),
+    live: h(LivePhase, { room, myName, isHost, onRoomUpdate: setRoom }),
+    end: h(EndPhase, { room, myName }),
+  };
+
+  return wrap(phases[room.phase] || h("p", { className: "text-white/40 text-center mt-20" }, "Unknown phase"));
+}
+
+createRoot(document.getElementById("root")).render(h(App));
+</script>
+</body>
+</html>
+dcss.com"></script>
 <script type="importmap">
 {
   "imports": {
