@@ -705,14 +705,14 @@ function EndPhase({room,myName}) {
   const myGive=giveTotals[myName]||0;
   const myDrink=drinkTotals[myName]||0;
 
-  return h("div",{className:"col"},
-      onDone:chosen=>doHandOut(chosen)},
-
-    h("div",{className:"text-center"},
-      h("div",{className:"text-5xl mb2"},"🏁"),
-      h("h2",{className:"font-black text-3xl",style:{margin:0}},"Game Over!"),
-      h("p",{className:"muted",style:{marginTop:".5rem"}},`Your totals: Drink ${myDrink}, Hand out ${myGive}`)
-    ),
+ return h("div",{className:"col"},
+  h("div",{className:"text-center"},
+    h("div",{className:"text-5xl mb2"},"🏁"),
+    h("h2",{className:"font-black text-3xl",style:{margin:0}},"Game Over!"),
+    h("p",{className:"muted",style:{marginTop:".5rem"}},`Your totals: Drink ${myDrink}, Hand out ${myGive}`)
+  ),
+  ...
+);
 
     h(Card,{},
       h("p",{className:"font-black mb2"},"Final Totals"),
