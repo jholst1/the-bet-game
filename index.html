@@ -187,7 +187,7 @@ function VerifyPopup({bet,room,myName,onClose}) {
 
       mine.give>0 && h("p",{className:"font-black c-yellow mb3"},`You can now hand out ${mine.give} sip${mine.give!==1?"s":""}.`),
       mine.drink>0 && h("p",{className:"font-black c-red mb3"},`You drink ${mine.drink} sip${mine.drink!==1?"s":""}.`),
-      (mine.give===0 && mine.drink===0) && h("p",{className:"muted mb3"},"No wager for you on this one."),
+      (mine.give===0 && mine.drink===0) && h("p",{className:"muted mb3"},"No action for you on this one."),
 
       h(Btn,{onClick:onClose,color:"green",full:true},"Got it!")
     )
@@ -545,27 +545,25 @@ function LivePhase({room,myName,isHost,onRoomUpdate}) {
     const outcomes={}; // player -> {give, drink}
 
     r.players.forEach(p=>{
-      const w=(r.wagers||{})[p.name]?.[bet.id]; 
+      const w=(r.wagers||{})[p.name]?.[bet.id];
       if(!w) return;
 
       if(w>0){
-        // Long was RIGHT -> show handouts (wager * odds) in popup, but DO NOT add to giveTotals
+        // Long hit -> show popup handout (wager * odds), but do NOT affect end totals
         const g=Math.round(w*odds);
         outcomes[p.name]={give:g,drink:0};
       } else {
-  // Short was WRONG -> drink |w|
-  const d = Math.abs(w);
-  drinkTotals[p.name] = (drinkTotals[p.name] || 0) + d;
-  outcomes[p.name] = { give: 0, drink: d };
-}
+        // Short lost -> no end penalty (and no popup penalty)
+        outcomes[p.name]={give:0,drink:0};
+      }
     });
+
     return {drinkTotals,giveTotals,outcomes};
   };
 
   const resolveBetExpired=(bet,r)=>{
     const drinkTotals={...(r.drinkTotals||{})};
     const giveTotals={...(r.giveTotals||{})};
-    const odds=(r.oddsMap||{})[bet.id]||1;
     const outcomes={};
 
     r.players.forEach(p=>{
@@ -573,16 +571,18 @@ function LivePhase({room,myName,isHost,onRoomUpdate}) {
       if(!w) return;
 
       if(w<0){
-        // short was RIGHT -> hand out |w| * odds
+        // Short was RIGHT -> hand out |w| (no odds)
         const g=Math.abs(w);
         giveTotals[p.name]=(giveTotals[p.name]||0)+g;
         outcomes[p.name]={give:g,drink:0};
       } else {
-        // long was WRONG -> drink w
-        drinkTotals[p.name]=(drinkTotals[p.name]||0)+w;
-        outcomes[p.name]={give:0,drink:w};
+        // Long was WRONG -> drink w
+        const d=Math.abs(w);
+        drinkTotals[p.name]=(drinkTotals[p.name]||0)+d;
+        outcomes[p.name]={give:0,drink:d};
       }
     });
+
     return {drinkTotals,giveTotals,outcomes};
   };
 
