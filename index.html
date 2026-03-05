@@ -549,12 +549,14 @@ function LivePhase({room,myName,isHost,onRoomUpdate}) {
       if(!w) return;
 
       if(w>0){
-        // Long hit -> show popup handout (wager * odds), but do NOT affect end totals
+        // Long hit -> hand out wager * odds (popup only; not counted in end totals)
         const g=Math.round(w*odds);
         outcomes[p.name]={give:g,drink:0};
       } else {
-        // Short lost -> no end penalty (and no popup penalty)
-        outcomes[p.name]={give:0,drink:0};
+        // Short hit -> drink |w| now (counts toward end totals)
+        const d=Math.abs(w);
+        drinkTotals[p.name]=(drinkTotals[p.name]||0)+d;
+        outcomes[p.name]={give:0,drink:d};
       }
     });
 
