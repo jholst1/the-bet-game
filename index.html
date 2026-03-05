@@ -324,7 +324,7 @@ function BettingPhase({room,myName,isHost,onRoomUpdate}) {
     await saveRoom(room.code,u); onRoomUpdate(u);
   };
   const lockBets=async()=>{
-    if(myBets.length===0){alert("Add at least 1 bet first.");return;}
+    if(groupBets.length===0){alert("Add at least 1 bet first.");return;}
     const u={...room,bets:room.bets.map(b=>b.author===myName?{...b,locked:true}:b)};
     await saveRoom(room.code,u); onRoomUpdate(u);
   };
@@ -347,10 +347,10 @@ function BettingPhase({room,myName,isHost,onRoomUpdate}) {
       h("div",{className:"mt3"},h(Inp,{value:betText,onChange:setBetText,placeholder:`e.g. ${target} will spill their drink`})),
       h("div",{className:"flex gap2 mt3"},
         h(Btn,{onClick:addBet,color:"indigo",sm:true,disabled:myBets.length>=5||!betText.trim()},"Add Bet"),
-        myBets.length>0&&h(Btn,{onClick:lockBets,color:"green",sm:true},"Lock In")
+        groupBets.length>0&&h(Btn,{onClick:lockBets,color:"green",sm:true},"Lock In")
       )
     ),
-    myBets.length>0&&h(Card,{},
+    groupBets.length>0&&h(Card,{},
       locked&&h("p",{className:"font-bold mb3 c-green"},"✓ Bets locked in!"),
       h("div",{className:"flex flex-col gap2"},
         ...myBets.map(b=>h("div",{key:b.id,className:"bet-row"},
@@ -431,10 +431,12 @@ function VotingPhase({room,myName,isHost,onRoomUpdate}) {
 
 // ── Wagering ──────────────────────────────────────────────────
 function WageringPhase({room,myName,isHost,onRoomUpdate}) {
-  const myBets=(room.bets||[]).filter(b=>b.author===myName&&b.locked);
+  const me=room.players.find(p=>p.name===myName);
+  const myGroup=me?.group;
+  const groupBets=(room.bets||[]).filter(b=>b.group===myGroup&&b.locked);
   const existing=(room.wagers||{})[myName]||{};
-  const [wagers,setWagers]=useState(()=>{const w={};myBets.forEach(b=>{w[b.id]=existing[b.id]??0;});return w;});
-  const saved=Object.keys((room.wagers||{})[myName]||{}).length>=myBets.length&&myBets.length>0;
+  const [wagers,setWagers]=useState(()=>{const w={};groupBets.forEach(b=>{w[b.id]=existing[b.id]??0;});return w;});
+  const saved=Object.keys(((room.wagers||{})[myName]||{})).length>=groupBets.length && groupBets.length>0;
   const MAX_WAGER_TOTAL = (room.maxWagerTotal===undefined ? 14 : room.maxWagerTotal); // null => no limit
   const setW=(id,val)=>setWagers(w=>{
     const old=Number(w[id]||0);
@@ -459,8 +461,8 @@ function WageringPhase({room,myName,isHost,onRoomUpdate}) {
     await saveRoom(room.code,u); onRoomUpdate(u);
   };
   const allWagered=room.players.every(p=>{
-    const pb=(room.bets||[]).filter(b=>b.author===p.name&&b.locked);
-    return pb.length===0||Object.keys((room.wagers||{})[p.name]||{}).length>=pb.length;
+    const pb=(room.bets||[]).filter(b=>b.group===p.group&&b.locked);
+    return pb.length===0 || Object.keys(((room.wagers||{})[p.name]||{})).length>=pb.length;
   });
   const startGame=async()=>{
     const timerEnd=Date.now()+room.timerMinutes*60*1000;
@@ -481,7 +483,7 @@ function WageringPhase({room,myName,isHost,onRoomUpdate}) {
         return `Max total wager: ${cap} · Remaining: ${rem}`;
       })() )
     ),
-    ...myBets.map(b=>{
+    ...groupBets.map(b=>{
       const odds=(room.oddsMap||{})[b.id]??1, w=wagers[b.id]??0, isShort=w<0;
       return h(Card,{key:b.id,className:isShort?"card-orange":""},
         h("p",{className:"c-indigo font-semibold text-sm"},b.target),
@@ -547,9 +549,10 @@ function LivePhase({room,myName,isHost,onRoomUpdate}) {
       if(!w) return;
 
       if(w>0){
-  // Long was RIGHT, but we do NOT track handouts for longs
-  outcomes[p.name] = { give: 0, drink: 0 };
-} else {
+        // Long was RIGHT -> show handouts (wager * odds) in popup, but DO NOT add to giveTotals
+        const g=Math.round(w*odds);
+        outcomes[p.name]={give:g,drink:0};
+      } else {
   // Short was WRONG -> drink |w|
   const d = Math.abs(w);
   drinkTotals[p.name] = (drinkTotals[p.name] || 0) + d;
