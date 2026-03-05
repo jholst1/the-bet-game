@@ -224,11 +224,36 @@ function GuessPopup({result, myName, onClose}) {
   );
 }
 
+function RulesPopup({onClose}) {
+  return h("div",{className:"overlay"},
+    h(Card,{className:"overlay-card card-yellow"},
+      h("div",{className:"text-5xl mb3"},"📜"),
+      h("p",{className:"font-black text-xl mb2 c-yellow"},"Rules"),
+      h("div",{style:{textAlign:"left"}},
+        h("p",{className:"muted text-sm mb2"},"1) Make bets (each player writes bets about the other group)."),
+        h("p",{className:"muted text-sm mb2"},"2) Vote likelihood to set odds."),
+        h("p",{className:"muted text-sm mb2"},"3) Wager on ALL bets from your group (positive = it happens, negative = it won’t)."),
+        h("p",{className:"muted text-sm mb2"},"4) During the game, verify a bet when it happens:"),
+        h("p",{className:"muted text-sm mb2",style:{marginLeft:"0.75rem"}},"• Long hits: you can hand out (wager × odds) sips (shown in popup)."),
+        h("p",{className:"muted text-sm mb2",style:{marginLeft:"0.75rem"}},"• Short hits: you drink your shorted sips (shown in popup)."),
+        h("p",{className:"muted text-sm mb2"},"5) End of game: any unverified bets are treated as ‘didn’t happen’."),
+        h("p",{className:"muted text-sm mb2",style:{marginLeft:"0.75rem"}},"• Long didn’t hit: you drink your wagered sips (counts in final totals)."),
+        h("p",{className:"muted text-sm mb2",style:{marginLeft:"0.75rem"}},"• Short didn’t hit: you can hand out your wagered sips (counts in final totals)."),
+        h("p",{className:"muted text-xs"},"Tip: Max total wager (sum of abs wagers) can be set by the host.")
+      ),
+      h("div",{className:"mt4"}),
+      h(Btn,{onClick:onClose,color:"yellow",full:true},"Got it!")
+    )
+  );
+}
+
 
 // ── Landing ───────────────────────────────────────────────────
 function Landing({onHost,onJoin}) {
   const [code,setCode]=useState("");
+  const [showRules,setShowRules]=useState(false);
   return h("div",{className:"col-center"},
+    showRules&&h(RulesPopup,{onClose:()=>setShowRules(false)}),
     h("div",{className:"text-5xl"},"🍺"),
     h("h1",{className:"font-black",style:{fontSize:"2.2rem",letterSpacing:"-0.02em",margin:"0"}},"The Bet Game"),
     h("p",{className:"muted",style:{maxWidth:"18rem"}},"A party drinking game where you bet on what the other team will do."),
@@ -237,7 +262,8 @@ function Landing({onHost,onJoin}) {
       h("div",{className:"flex gap2"},
         h(Inp,{value:code,onChange:v=>setCode(v.toUpperCase()),placeholder:"Room code"}),
         h(Btn,{onClick:()=>onJoin(code),color:"gray",sm:true},"Join")
-      )
+      ),
+      h(Btn,{onClick:()=>setShowRules(true),color:"gray",full:true},"Rules")
     )
   );
 }
