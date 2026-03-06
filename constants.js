@@ -5,7 +5,7 @@ BG.consts = BG.consts || {};
 // ── Constants ─────────────────────────────────────────────────
 const SIPS = 14;
 const LIKELIHOOD_OPTIONS = ["Very Unlikely", "Unlikely", "Neutral", "Likely", "Very Likely"];
-const ODDS_MAP = { "Very Unlikely": 2.5, "Unlikely": 1.5, "Neutral": 1, "Likely": 0.75, "Very Likely": 0.4 };
+const ODDS_MAP = { "Very Unlikely": 2.5, "Unlikely": 1.5, "Neutral": 1, "Likely": 0.9, "Very Likely": 0.6 };
 
 function genCode(n=5) { return Math.random().toString(36).substring(2,2+n).toUpperCase(); }
 function sipsToDrinks(sips) {
