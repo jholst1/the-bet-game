@@ -49,9 +49,65 @@ function EndPhase({room,myName}) {
     if(dx < 0) next(); else prev();
   };
 
-  // --- slide 2: leaders ---
-  const topGive  = [...rows].sort((a,b)=>b.give-a.give).slice(0,2);
-  const topDrink = [...rows].sort((a,b)=>b.drink-a.drink).slice(0,2);
+  // --- slide 2: leaders (during-game + end-of-game totals) ---
+const computeAllTimeTotals = () => {
+  const allGive = {};
+  const allDrink = {};
+  (room.players || []).forEach(p => { allGive[p.name] = 0; allDrink[p.name] = 0; });
+
+  const wagersByPlayer = room.wagers || {};
+  const oddsMap = room.oddsMap || {};
+
+  // helper: apply "bet hit" (verified) outcomes
+  const applyVerified = (betId) => {
+    const odds = oddsMap[betId] || 1;
+
+    (room.players || []).forEach(p => {
+      const w = Number((wagersByPlayer[p.name] || {})[betId] || 0);
+      if (!w) return;
+
+      if (w > 0) {
+        // long hit -> hand out wager*odds (during game)
+        allGive[p.name] += Math.round(w * odds);
+      } else {
+        // short hit -> drink abs(w) (during game)
+        allDrink[p.name] += Math.abs(w);
+      }
+    });
+  };
+
+  // helper: apply "bet didn't hit" (expired) outcomes
+  const applyExpired = (betId) => {
+    (room.players || []).forEach(p => {
+      const w = Number((wagersByPlayer[p.name] || {})[betId] || 0);
+      if (!w) return;
+
+      if (w > 0) {
+        // long didn't hit -> drink wager (end)
+        allDrink[p.name] += Math.abs(w);
+      } else {
+        // short didn't hit -> hand out abs(w) (end)
+        allGive[p.name] += Math.abs(w);
+      }
+    });
+  };
+
+  (room.verifiedBets || []).forEach(applyVerified);
+  (room.expiredBets || []).forEach(applyExpired);
+
+  return { allGive, allDrink };
+};
+
+const { allGive, allDrink } = computeAllTimeTotals();
+
+const leaderRows = players.map(name => ({
+  name,
+  give: allGive[name] || 0,
+  drink: allDrink[name] || 0
+}));
+
+const topGive  = [...leaderRows].sort((a,b)=>b.give-a.give).slice(0,2);
+const topDrink = [...leaderRows].sort((a,b)=>b.drink-a.drink).slice(0,2);
 
   // --- slide 3: top invested/shorted bets ---
   const allBets = (room.bets||[]).filter(b=>b.locked);
